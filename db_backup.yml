@@ -1,0 +1,48 @@
+name: Daily DB Backup to R2
+
+on:
+  schedule:
+    - cron: "0 19 * * *"   # ежедневно в 19:00 UTC (~02:00 по Ханою)
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Create dump
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_PLAIN }}
+        run: |
+          mkdir -p backup
+          ts=$(date -u +"%Y-%m-%dT%H-%M-%SZ")
+          pg_dump "$DATABASE_URL" -Fc -Z9 -f "backup/db_$ts.dump"
+
+      - name: Upload to R2 via AWS CLI
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_KEY_SECRET }}
+          AWS_DEFAULT_REGION: "auto"
+        run: |
+          pip install awscli
+          aws s3 cp backup/ s3://${{ secrets.R2_BUCKET }}/ --recursive --endpoint-url ${{ secrets.R2_ENDPOINT }}
+
+      - name: Retention: delete older than 14 days
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_KEY_SECRET }}
+          AWS_DEFAULT_REGION: "auto"
+        run: |
+          pip install awscli
+          cutoff=$(date -u -d "14 days ago" +"%Y-%m-%dT%H-%M-%SZ")
+          aws s3 ls s3://${{ secrets.R2_BUCKET }}/ --endpoint-url ${{ secrets.R2_ENDPOINT }} | while read -r d t size file; do
+            fname=$(echo "$file" | tr -d '\r')
+            dt="$d $t"
+            file_epoch=$(date -d "$dt" +%s)
+            cutoff_epoch=$(date -d "$cutoff" +%s)
+            if [ $file_epoch -lt $cutoff_epoch ]; then
+              aws s3 rm "s3://${{ secrets.R2_BUCKET }}/$fname" --endpoint-url ${{ secrets.R2_ENDPOINT }}
+            fi
+          done
