@@ -6,6 +6,8 @@ import os
 from app.routers import auth as auth_router
 from app.routers import contacts as contacts_router
 from app.idempotency import IdempotencyMiddleware
+from app.routers import orders as orders_router
+from app.routers import payments as payments_router
 
 
 app = FastAPI(title="CRM Backend", version="0.0.1")
@@ -32,7 +34,8 @@ app.add_middleware(IdempotencyMiddleware)
 # Include routers for auth and contacts
 app.include_router(auth_router.router)
 app.include_router(contacts_router.router)
-
+app.include_router(orders_router.router)
+app.include_router(payments_router.router)
 
 @app.get("/healthz")
 def healthz():
