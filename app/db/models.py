@@ -22,6 +22,7 @@ from sqlalchemy import (
     Index,
 )
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import JSONB
 
 from .base import Base
 
@@ -227,3 +228,45 @@ class EventLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, index=True
     )
+
+# ---------------------------------------------------------------------------
+# Users and Idempotency Keys
+# ---------------------------------------------------------------------------
+class User(Base):
+    """Represents a user of the CRM system with a role and credentials."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(256), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(256))
+    role: Mapped[str] = mapped_column(String(16), index=True)  # owner/manager/agent
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, index=True
+    )
+
+
+class IdempotencyKey(Base):
+    """Stores request/response pairs to support idempotent write operations."""
+
+    __tablename__ = "idempotency_keys"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(128), index=True)
+    method: Mapped[str] = mapped_column(String(8))
+    path: Mapped[str] = mapped_column(String(512))
+    body_hash: Mapped[str | None] = mapped_column(String(64))  # sha256
+    response_status: Mapped[int | None] = mapped_column(Integer)
+    response_body: Mapped[dict | None] = mapped_column(JSONB)  # save response
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, index=True
+    )
+
+
+# speed up lookup by key, method and path
+Index(
+    "ix_idem_key_method_path",
+    IdempotencyKey.key,
+    IdempotencyKey.method,
+    IdempotencyKey.path,
+)
